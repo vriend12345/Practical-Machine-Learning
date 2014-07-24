@@ -1,0 +1,121 @@
+---
+title: "Practical Machine Learning Class - Prediction Assignment Writeup"
+author: "Hazm Talab"
+date: "Wednesday, July 23, 2014"
+output: html_document
+---
+## Abstract  
+In this assignment we are trying to build a predictive model to predict human activity using different type of measurements data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants.
+
+## Getting the Data  
+The data for this project come from this source: <http://groupware.les.inf.puc-rio.br/har>.  
+The training data for this project are available here: 
+<https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv>  
+The test data are available here: 
+<https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv>  
+
+## Loading the Data  
+
+```{r LoadingData}
+pml.training <- read.csv("pml-training.csv")
+pml.testing <- read.csv("pml-testing.csv")
+```
+
+## Exploring the data
+
+```{r ExploringData}
+dim(pml.training)
+dim(pml.testing)
+str(pml.training)
+```
+
+We notice that there are many numerical variables treated as factor variables 
+because they have "#DIV/0!" error so we reload the data and pass this string to 
+na.strings parameter to consider this error a missing value.
+
+```{r ReloadingData}
+pml.training <- read.csv("pml-training.csv", na.strings = c("NA","#DIV/0!"))
+pml.testing <- read.csv("pml-testing.csv", na.strings = c("NA","#DIV/0!"))
+str(pml.training)
+```
+
+There still many missing values. So, in order to clean the data we examine the features that 
+has missing values and drop them out of the data set. In other words, we only keep the features 
+which do not have any missing values. We also drop out the first seven features, which are not much relevant.
+
+```{r RemoveNAFeatures}
+data <- pml.training[colnames(pml.training[colSums(is.na(pml.training)) == 0])][-(1:7)]
+dim(data)
+```
+
+We notice that we dropped out more than 100 features. That leave us with `r dim(data)[2]-1` predictors, and of course that will help us build our model more efficiently.  
+
+## Creating training and testing datasets
+Let us now split the dataset into two datasets using **caret** package.  
+
+```{r CreatingTrainTest}
+library(caret)
+set.seed(1234)
+inTrain <- createDataPartition(data$classe, p=0.7, list=FALSE)
+training <- data[inTrain,]
+testing <- data[-inTrain,]
+```
+
+## Creating a model Fit
+We use **randomForest** package with **caret** package to build our prediction model using random forest algorithm with cross validation. We use only the raining dataset we created.  
+We use **doParallel** package to use the CPU cores for the computations.   
+
+```{r CreatingModel, cache=TRUE}
+library(randomForest)
+library(doParallel)
+cl <- makeCluster(detectCores())
+registerDoParallel(cl)
+modFit <- train(classe ~ ., data=training, method="rf", trControl = trainControl(method = 'cv'))
+stopCluster(cl)
+````
+
+## Evaluating the model
+We evaluate the model on the training dataset first.  
+```{r EvaluatingModelTRAIN}
+TrainingPredictions <- predict(modFit, newdata=training)
+confusionMatrix(TrainingPredictions, training$classe)
+```
+We notice from the result of confusionMatrix that fit the data perfectly with accuracy of 
+`r confusionMatrix(TrainingPredictions, training$classe)$overall[1]`.  
+
+Then we evaluate the model on the testing dataset we create.  
+```{r EvaluatingModelTEST}
+TestingPredictions <- predict(modFit, newdata=testing)
+confusionMatrix(TestingPredictions, testing$classe)
+```
+The results of confusionMatrix shows that the model is efficient. It fit the testing dataset very well. The accuracy is `r confusionMatrix(TestingPredictions, testing$classe)$overall[1]`.   
+
+## The estimated out of sample error
+As we expected the estimated out of sample error is very low using random forest algorithm with cross validation.
+```{r FinalModel}
+modFit$finalModel
+```
+
+
+## Predicting the test cases provided by Coursera
+Finally we predict the outcome on **pml.testing** dataset, the test dataset provided by Coursera that we loaded early, we test the 20 cases and check using Coursera dashboard. We predict 20 out 20 correctly.  
+
+We use the following code to predict the outcome.  
+```{r PredictTEST}
+answers = predict(modFit, newdata=pml.testing)
+answers
+```
+
+We use the following function and code to generate the files we submitted to Coursera.
+```{r WriteAnswers, eval=FALSE}
+pml_write_files = function(x){
+  n = length(x)
+  for(i in 1:n){
+    filename = paste0("problem_id_",i,".txt")
+    write.table(x[i],file=filename,quote=FALSE,row.names=FALSE,col.names=FALSE)
+  }
+}
+setwd("Answers/")
+pml_write_files(answers)
+```
+
